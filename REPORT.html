@@ -1,0 +1,51 @@
+<style>
+    body {
+        font: 14px sans-serif;
+    }
+</style>
+
+<body>
+    <h3>What is the dataset about?</h3>
+    <p>The data set is about the network traffic reported by a firewall plugin called BandwidhtD. The data is exported in CDF format, which is very similar to common CSV files. The data is exported in 4 different intervals: 3.3min, 10min, 1h and 12h. The data looks like:</p>
+    <p style="font-family: 'Courier New', Courier, monospace">ip,date,Sent,sicmp,sudp,stcp,sftp,shttp,ssmtp,Received,ricmp,rudp,rtcp,rftp,rhttp,rsmtp<br>
+            250,1525039429,45647,31696,988,12963,0,12963,0,67720,31696,988,35036,0,35036,0<br>
+            0.0.0.0,1525039429,474115,63992,54057,356066,0,347772,0,842872,64188,52761,725923,0,718607,0<br>
+            1,1525039429,31696,31696,0,0,0,0,0,31696,31696,0,0,0,0,0</p>
+    
+    <h3>What are the user tasks?</h3>
+    <p>The user tasks are:</p>
+    <ul>
+        <li>explore the outoging/incoming network traffic</li>
+        <li>compare the network traffic of a workstation with different type of servers (Mail, File, Domain,..) and different OS (Windows, Linux,...)</li>
+    </ul>
+
+    <h3>What dashboard solution do you propose?</h3>
+    <p>The first component is a line chart which displays the overall incoming and outgoing traffic in MBit/sec. There is a selector at the bottom of the line chart to change the displayed time (x-Axis) which is .</p>
+    <p>The second component is a bar chart wich is displays under the line chart. Here, the traffic for each server is displayed in MByte. If the selector above gets changed, the bar chart is updated accordingly.</p>
+    <p>The third component is a bar chart wich is displays under the bar chart displaying the server's network traffic. Here, the traffic for the different protocols (tcp/udp, http/ftp/..) is displayed in MByte. If the selector above gets changed, the bar chart is updated accordingly. When hovering a bar in this chart, the above bar chart which displays the statistcs for the servers are updated according to the current hovered protocol.</p>
+
+    <h3>How did you implement the dashboard?</h3>
+	<p>The dashboard is implemented with plain d3 (without any additional fuctionality from another library). The implementation of the line and bar-charts is straight forward. For the bar charts. the enter/exit/transition methods are implemented correctly, they get updated according to the selected timeslot.</p>
+	<p>The data reported by the firewall plugin has to be modified to be displayed with those charts which happens at runtime. For the line chart, this was little effort. For the bar charts, this was more effort since the network traffic has to be summed up by different keys.</p>
+
+    <h3>What are the limitations of your solution?</h3>
+	<p>I did not found technical limitations since the datasets are not greater than 2MB, the datasets used gets easily computed.</p>
+    <p>I think there are some minor changes necessary to use this visualisation for real investigation:</p>
+    <ul>
+        <li>Display the server's name instead of the last octet of the ip address</li>
+        <li>Use different colors for different types of servers</li>
+        <li>Use different colors for different types of protocols</li>
+        <li>Use x-axis labeling for the bar charts</li>
+        <li>Improve the current implementation of the slider</li>
+        <li>Use logarithmic scale for the protocol bar chart or another representation (the amount of http/tcp traffic reduce the height of the other bars enormously)</li>
+    </ul>
+
+    <h3>How does the solution enable users to answer the tasks?</h3>
+	<p>Its possible for the user to have a look at the overall traffic and to select a timeslot of interest. The network traffic of the timeslot is then displayed per machine and per protocol. The user has the ability to move slider to see what was going on at the bar charts. When implementing the modifications listed above, this visualisation should really help to give an overview on what is goning on at the network.</p>
+
+    <h3>What are the findings/insights?</h3>
+	<p>I think there are still some small adjustments needed to really use this visualization for the analysis. The amount of HTTP and TCP traffic is very high and leaves other, possibly more interesting, protocols vanishingly small.</p>
+    
+    <h3>What is your conclusion?</h3>
+	<p>Once you are familiar with D3, it is very easy to make any representations, but you must first get into those concepts.</p>
+</body>

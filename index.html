@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<title>NetMonitor</title>
+<style>
+
+body {
+  font: 12px sans-serif;
+}
+
+.axis path,
+.axis line {
+  fill: none;
+  stroke: #E6E7E8;
+  shape-rendering: crispEdges;
+}
+
+.bar {
+  fill: steelblue;
+}
+
+.bar:hover {
+  fill: lightsteelblue;
+}
+
+.line {
+  fill: none;
+  stroke-width: 1.0px;
+}
+
+.tooltip {
+  position: absolute;
+  padding: 10px;
+  background: #222;
+  color: #fff;
+  border: 0px;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0.9;
+  visibility: hidden;
+}
+</style>
+</head>
+</body>
+
+<div>
+    <select id="select" onchange="selectChange(this)">
+        <option value="data1">3min</option>
+        <option value="data2">10min</option>
+        <option value="data3">1h</option>
+        <option value="data4">12h</option>
+    </select>
+</div>
+
+<div>
+    <svg id="line"></svg>
+    <svg id="bar"></svg>
+    <svg id="det"></svg>
+</div>
+
+<body>
+
+<script src="http://d3js.org/d3.v3.js"></script>
+<script>
+
+function selectChange(obj) {
+    var value = obj.value;
+    console.log(value);
+}
+
+var margin = { top: 20, right: 200, bottom: 100, left: 100 },
+    margin2 = { top: 400, right: 10, bottom: 20, left: 40 },
+    width = 1000 - margin.left - margin.right,
+    height = 460 - margin.top - margin.bottom,
+    height2 = 500 - margin2.top - margin2.bottom;
+
+//scale for line chart
+var xScale = d3.time.scale()
+    .range([0, width]),
+    xScale2 = d3.time.scale()
+        .range([0, width]);
+
+//scale for selector (brush)
+var yScale = d3.scale.linear()
+    .range([height, 0]);
+
+//14 different colors for the different columns in the csv
+var color = d3.scale.ordinal().range(["#e6194b", "#f032e6", "#ffe119", "#0082c8", "#f58231", "#911eb4", "#46f0f0", "#3cb44b", "#d2f53c", "#fabebe", "#e6beff", "#aa6e28", "#fffac8"]);
+
+//axis for line charts and slider
+var xAxis = d3.svg.axis()
+    .scale(xScale)
+    .orient("bottom");
+    xAxis2 = d3.svg.axis()
+    .scale(xScale2)
+    .orient("bottom");
+
+var yAxis = d3.svg.axis()
+    .scale(yScale)
+    .orient("left");
+
+var line = d3.svg.line()
+    .interpolate("basis")
+    .x(function (d) { return xScale(d.date); })
+    .y(function (d) { return yScale(d.measure); })
+    .defined(function (d) { return d.measure; });
+
+var svg = d3.select("#line")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+// slider
+var context = svg.append("g")
+    .attr("transform", "translate(" + 0 + "," + (margin2.top - margin2.bottom) + ")")
+    .attr("class", "context");
+
+svg.append("defs")
+    .append("clipPath")
+    .attr("id", "clip")
+    .append("rect")
+    .attr("width", width)
+    .attr("height", height);
+
+//bar chart (servers)
+var heightBar = 260 - margin.top - margin.bottom;
+
+var svgBar = d3.select("#bar")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", heightBar + margin.top + margin.bottom)
+    .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top * 2 + ")");
+
+var xScaleBar = d3.scale.ordinal()
+    .rangeRoundBands([0, width], .1);
+
+var yScaleBar = d3.scale.linear()
+    .rangeRound([heightBar, 0]);
+
+//bar chart (protocols)
+var heightDet = 260 - margin.top - margin.bottom;
+
+var svgDet = d3.select("#det")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", heightDet + margin.top + margin.bottom)
+    .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top * 2 + ")");
+
+var xScaleDet = d3.scale.ordinal()
+    .rangeRoundBands([0, width], .1);
+
+var yScaleDet = d3.scale.linear()
+    .rangeRound([heightDet, 0]);
+
+//READ DATA AND CREATE SVGs
+d3.csv("data.csv", function (data) {
+    //set the color domain to all headers in the csv except the ones by them they are filtered
+    color.domain(d3.keys(data[0]).filter(function (key) {
+        return key !== "date" && key !== "ip";
+    }));
+
+    //convert timestamp to a date
+    data.forEach(function (d) {
+        d.date = new Date(d.date * 1000);
+    });
+
+    //create custom data structure which is used for the LINE CHART
+    var categories = color.domain().map(function (name) {
+        return {
+            name: name,
+            values: data.map(function (d) {
+                return {
+                    ip: d.ip,
+                    date: d.date,
+                    measure: (+(d[name]) *8/ (1024 * 1024 * 600)),
+                };
+            }),
+            visible: (name === "Sent" || name === "Received" ? true : false) // "visible": all false except for economy which is true.
+        };
+    });
+
+    //scale domains of LINE CHART
+    xScale.domain(d3.extent(data, function (d) { return d.date; }));
+    yScale.domain([0, d3.max(categories, function (c) { return d3.max(c.values, function (v) { return v.measure; }); })]);
+
+
+    //copy initial data (this data is used later, when computing the data for the BAR CHART)
+    var initBarData = JSON.parse(JSON.stringify(categories));
+
+    //remove all elements displaying the overall traffic
+    initBarData.forEach(function (d) {
+        d.values = d.values.filter(d => d.ip !== "0.0.0.0");
+    });
+
+    var barData = [];
+    var barDataDetails = [];
+
+    //display only the entries which holds the overall traffic in the LINE CHART
+    categories.forEach(function (d) {
+        d.values = d.values.filter(d => d.ip === "0.0.0.0");
+    });
+
+    //the domain for the silder is the same as the linechart
+    xScale2.domain(xScale.domain());
+
+    //create slider
+    var brush = d3.svg.brush()
+        .x(xScale2)
+        .on("brush", brushed);
+
+    context.append("g")
+        .attr("class", "x axis1")
+        .attr("transform", "translate(0," + height2 + ")")
+        .call(xAxis2);
+
+    var contextArea = d3.svg.area()
+        .x(function (d) { return xScale2(d.date); })
+        .y0(height2)
+        .y1(0);
+
+    //slider
+    context.append("path")
+        .attr("class", "area")
+        .attr("d", contextArea(categories[0].values))
+        .attr("fill", "#F0F0F0");
+
+    //selected part of the slider
+    context.append("g")
+        .attr("class", "x brush")
+        .call(brush)
+        .selectAll("rect")
+        .attr("height", height2)
+        .attr("fill", "#E0E0E0");
+
+
+    //LINE CHART
+    svg.append("g")
+        .attr("class", "x axis")
+        .attr("transform", "translate(0," + height + ")")
+        .call(xAxis);
+
+    svg.append("g")
+        .attr("class", "y axis")
+        .call(yAxis)
+        .append("text")
+        .attr("y", 10)
+        .attr("x", 10)
+        .text("MBit/s");
+
+    var issue = svg.selectAll(".issue")
+        .data(categories)
+        .enter().append("g")
+        .attr("class", "issue");
+
+    issue.append("path")
+        .attr("class", "line")
+        .style("pointer-events", "none")
+        .attr("id", function (d) {
+            return "line-" + d.name;
+        })
+        .attr("d", function (d) {
+            return d.visible ? line(d.values) : null;
+        })
+        .attr("clip-path", "url(#clip)")
+        .style("stroke", function (d) { return color(d.name); });
+
+
+    //legend of the LINE CHART
+    var legend = svg.append("g")
+        .attr("text-anchor", "end")
+        .selectAll("g")
+        .data(categories.filter(x => x.visible == true).map(a => a.name))
+        .enter().append("g")
+        .attr("transform", function (d, i) { return "translate(0," + i * 20 + ")"; });
+
+    legend.append("rect")
+        .attr("x", width - 19)
+        .attr("width", 19)
+        .attr("height", 19)
+        .attr("fill", color);
+
+    legend.append("text")
+        .attr("x", width - 24)
+        .attr("y", 9.5)
+        .attr("dy", "0.32em")
+        .text(function (d) { return d; });
+
+    //bar chart servers
+    var xAxisBar = d3.svg.axis()
+        .scale(xScaleBar)
+        .orient("bottom");
+
+    var yAxisBar = d3.svg.axis()
+        .scale(yScaleBar)
+        .orient("left");
+
+    svgBar.append("g")
+        .attr("class", "x axis")
+        .attr("transform", "translate(0," + heightBar + ")")
+        .call(xAxisBar);
+
+    svgBar.append("g")
+        .attr("class", "y axis")
+        .call(yAxisBar);
+
+    var tooltip = d3.select("body").append("div")
+        .attr("class", "tooltip");
+
+
+    //bar chart details
+    var xAxisDet = d3.svg.axis()
+        .scale(xScaleDet)
+        .orient("bottom");
+
+    var yAxisDet = d3.svg.axis()
+        .scale(yScaleDet)
+        .orient("left");
+
+    svgDet.append("g")
+        .attr("class", "x axis")
+        .attr("transform", "translate(0," + heightDet + ")")
+        .call(xAxisDet);
+
+    svgDet.append("g")
+        .attr("class", "y axis")
+        .call(yAxisDet);
+
+    var tooltipDet = d3.select("body").append("div")
+        .attr("class", "tooltip");
+
+    //every svg components for the bar chart are created, the data to display is now computed
+    AdaptBarData();
+
+    //function is called when the slider changes
+    function brushed() {
+
+        //if sth is selected in the brush, set the scale from the linechart to the selected scale
+        //otherwise use the complete scale (xScale2)
+        xScale.domain(brush.empty() ? xScale2.domain() : brush.extent());
+
+        //replot x axis line graph
+        svg.select(".x.axis")
+            .transition()
+            .call(xAxis);
+
+        //find current max displayed value and scale the y axis
+        yScale.domain([0, findMaxY(categories, xScale)]);
+
+        //replot y axis line graph
+        svg.select(".y.axis")
+            .transition()
+            .call(yAxis);
+        //replot the lines in the graph
+        issue.select("path")
+            .transition()
+            .attr("d", function (d) {
+                return d.visible ? line(d.values) : null;
+            });
+
+        AdaptBarData();
+    };
+
+    //this function recalculates the values which should be displayed in the bar charts
+    //a custom list of objects for this two bar charts are created
+    function AdaptBarData() {
+        barData = [];
+        barDataDetails = [];
+        var fromTicks = xScale.domain()[0].getTime();
+        var toTicks = xScale.domain()[1].getTime();
+
+        initBarData.filter(d => d.visible === true)
+            .map(function (p) { return p.values; })
+            .reduce(function (a, b) { return a.concat(b) })
+            .reduce(function (res, value) {
+                if (!res[value.ip]) {
+                    res[value.ip] = {
+                        measure: 0,
+                        ip: value.ip
+                    };
+                    barData.push(res[value.ip])
+                }
+                var valDate = new Date(value.date).getTime();
+                if (valDate >= fromTicks && valDate <= toTicks) {
+                    res[value.ip].measure += value.measure * 600 / (8*8)
+                }
+                return res;
+            }, {});
+
+
+        barDataDetails = categories.filter(d => d.visible === false)
+            .map(function (p) {
+                return {
+                    ip: p.name,
+                    measure: p.values.filter(v => (new Date(v.date).getTime()) >= fromTicks
+                        && (new Date(v.date).getTime()) <= toTicks).reduce((prev, next) => parseFloat(prev || 0) + parseFloat(next.measure) * 600 / (8*8), 0)
+                }
+            });
+
+
+        barData = barData.sort(function (a, b) { return b.measure - a.measure }).slice(0, 14);
+        barDataDetails = barDataDetails.sort(function (a, b) { return b.measure - a.measure }).slice(0, 14);
+
+        //console.log(barData);
+        //console.log(barDataDetails);
+
+        drawBarchartServers();
+        drawBarchartDetails();
+    };
+
+    //this function updates the bar chart and is called after the data for the bar chart is computed
+    function drawBarchartServers() {
+        xScaleBar.domain(barData.map(function (d) { return d.ip; }));
+        yScaleBar.domain([0, d3.max(barData, function (d) { return d.measure; }) * 1.1]);
+
+        svgBar.select('.x.axis').transition().duration(300).call(xAxisBar);
+        svgBar.select(".y.axis").transition().duration(300).call(yAxisBar)
+
+        var bar = svgBar.selectAll(".bar")
+            .data(barData);
+
+        bar.exit()
+            .transition()
+            .duration(300)
+            .attr("y", yScaleBar(0))
+            .attr("height", heightBar - yScaleBar(0))
+            .style('fill-opacity', 1e-6)
+            .remove();
+
+        bar.enter().append("rect")
+            .attr("class", "bar")
+            .attr("x", function (d) {
+                return xScaleBar(d.ip);
+            })
+            .attr("y", heightBar)
+            .attr("width", xScaleBar.rangeBand())
+            .attr("height", 0);
+
+        bar.transition().duration(300)
+            .attr("x", function (d) { return xScaleBar(d.ip); })
+            .attr("width", xScaleBar.rangeBand())
+            .attr("y", function (d) { return yScaleBar(d.measure); })
+            .attr("height", function (d) {
+                return heightBar - yScaleBar(d.measure);
+            });
+
+        bar.on("mouseover", function (d) {
+            tooltip.html(d.ip + ": " + parseFloat(d.measure).toFixed(2) + " MB")
+                .style("visibility", "visible");
+        })
+            .on("mousemove", function (d) {
+                tooltip.style("top", event.pageY - (tooltip[0][0].clientHeight + 5) + "px")
+                    .style("left", event.pageX - (tooltip[0][0].clientWidth / 2.0) + "px");
+            })
+            .on("mouseout", function (d) {
+                tooltip.style("visibility", "hidden");
+            });
+    };
+
+
+    //this function recalculates the values which should be displayed in the bar chart (only for the server bar chart)
+    function AdaptBarDataServerOnHoverDetail(hoveredDetailName) {
+        barData = [];
+        var fromTicks = xScale.domain()[0].getTime();
+        var toTicks = xScale.domain()[1].getTime();
+
+        initBarData.filter(d => hoveredDetailName != null ? d.name === hoveredDetailName : d.visible === true)
+            .map(function (p) { return p.values; })
+            .reduce(function (a, b) { return a.concat(b) })
+            .reduce(function (res, value) {
+                if (!res[value.ip]) {
+                    res[value.ip] = {
+                        measure: 0,
+                        ip: value.ip
+                    };
+                    barData.push(res[value.ip])
+                }
+                var valDate = new Date(value.date).getTime();
+                if (valDate >= fromTicks && valDate <= toTicks) {
+                    res[value.ip].measure += value.measure * 600 / (8*8)
+                }
+                return res;
+            }, {});
+
+        barData = barData.sort(function (a, b) { return b.measure - a.measure }).slice(0, 14);
+
+        drawBarchartServers();
+    };
+
+
+    //this function updates the bar chart and is called after the data for the bar chart is computed
+    function drawBarchartDetails() {
+        xScaleDet.domain(barDataDetails.map(function (d) { return d.ip; }));
+        yScaleDet.domain([0, d3.max(barDataDetails, function (d) { return d.measure; }) * 1.1]);
+
+        svgDet.select('.x.axis').transition().duration(300).call(xAxisDet);
+        svgDet.select(".y.axis").transition().duration(300).call(yAxisDet)
+
+        var bar = svgDet.selectAll(".bar")
+            .data(barDataDetails);
+
+        bar.exit()
+            .transition()
+            .duration(300)
+            .attr("y", yScaleDet(0))
+            .attr("height", heightDet - yScaleDet(0))
+            .style('fill-opacity', 1e-6)
+            .remove();
+
+        bar.enter().append("rect")
+            .attr("class", "bar")
+            .attr("x", function (d) {
+                return xScaleDet(d.ip);
+            })
+            .attr("y", heightDet)
+            .attr("width", xScaleDet.rangeBand())
+            .attr("height", 0);
+
+        bar.transition().duration(300)
+            .attr("x", function (d) { return xScaleDet(d.ip); })
+            .attr("width", xScaleDet.rangeBand())
+            .attr("y", function (d) { return yScaleDet(d.measure); })
+            .attr("height", function (d) {
+                return heightDet - yScaleDet(d.measure);
+            });
+
+        bar.on("mouseover", function (d) {
+            tooltipDet.html(d.ip + ": " + parseFloat(d.measure).toFixed(2) + " MB")
+                .style("visibility", "visible");
+            AdaptBarDataServerOnHoverDetail(d.ip);
+        })
+            .on("mousemove", function (d) {
+                tooltipDet.style("top", event.pageY - (tooltipDet[0][0].clientHeight + 5) + "px")
+                    .style("left", event.pageX - (tooltipDet[0][0].clientWidth / 2.0) + "px");
+            })
+            .on("mouseout", function (d) {
+                tooltipDet.style("visibility", "hidden");
+                AdaptBarDataServerOnHoverDetail(null);
+            });
+    };
+});
+
+//this function computes the maximum measure which is displayed
+//the scale (dates) is given as parameter, it would be possible to change the scaling of the Y-Axis in the line chart here
+//if we take only measures, where the date is in the range of the "dateScale"
+function findMaxY(data, dateScale) {
+
+    var fromTicks = dateScale.domain()[0].getTime();
+    var toTicks = dateScale.domain()[1].getTime();
+
+    var maxYValues = data.map(function (d) {
+        if (d.visible) {
+            return d3.max(d.values, function (value) {
+                var valDate = new Date(value.date).getTime();
+                if (valDate >= fromTicks && valDate <= toTicks) {
+                    return value.measure;
+                }
+            })
+        }
+    });
+    return d3.max(maxYValues);
+}
+
+</script>
+</html>
